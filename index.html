@@ -1,0 +1,425 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Shader Example</title>
+    <style>
+        canvas {
+            width: 100%;
+            height: auto;
+            display: block;
+        }
+        .slider-container {
+            margin: 20px;
+        }
+        .slider {
+            width: 300px;
+        }
+    </style>
+</head>
+<body>
+    <div class="slider-container">
+        <label for="scanLineAmount">Scan Line Amount</label>
+        <input type="range" id="scanLineAmount" class="slider" min="0" max="1" step="0.01" value="0.9">
+        <span id="scanLineAmountValue">0.9</span>
+        <br>
+        <label for="scanLineStrength">Scan Line Strength</label>
+        <input type="range" id="scanLineStrength" class="slider" min="-12" max="-1" step="0.1" value="-5.0">
+        <span id="scanLineStrengthValue">-5.0</span>
+        <br>
+        <label for="noiseAmount">Noise Amount</label>
+        <input type="range" id="noiseAmount" class="slider" min="0" max="0.3" step="0.01" value="0.03">
+        <span id="noiseAmountValue">0.03</span>
+        <br>
+        <label for="interferenceAmount">Interference Amount</label>
+        <input type="range" id="interferenceAmount" class="slider" min="0" max="1" step="0.01" value="0.2">
+        <span id="interferenceAmountValue">0.2</span>
+        <br>
+        <label for="grilleAmount">Grille Amount</label>
+        <input type="range" id="grilleAmount" class="slider" min="0" max="1" step="0.01" value="0.1">
+        <span id="grilleAmountValue">0.1</span>
+        <br>
+        <label for="grilleSize">Grille Size</label>
+        <input type="range" id="grilleSize" class="slider" min="1" max="5" step="0.1" value="1.0">
+        <span id="grilleSizeValue">1.0</span>
+        <br>
+        <label for="vignetteAmount">Vignette Amount</label>
+        <input type="range" id="vignetteAmount" class="slider" min="0" max="2" step="0.1" value="0.6">
+        <span id="vignetteAmountValue">0.6</span>
+        <br>
+        <label for="vignetteIntensity">Vignette Intensity</label>
+        <input type="range" id="vignetteIntensity" class="slider" min="0" max="1" step="0.1" value="0.4">
+        <span id="vignetteIntensityValue">0.4</span>
+        <br>
+        <label for="aberationAmount">Aberation Amount</label>
+        <input type="range" id="aberationAmount" class="slider" min="0" max="1" step="0.1" value="0.5">
+        <span id="aberationAmountValue">0.5</span>
+        <br>
+        <label for="rollLineAmount">Roll Line Amount</label>
+        <input type="range" id="rollLineAmount" class="slider" min="0" max="1" step="0.1" value="0.3">
+        <span id="rollLineAmountValue">0.3</span>
+        <br>
+        <label for="rollSpeed">Roll Speed</label>
+        <input type="range" id="rollSpeed" class="slider" min="-8" max="8" step="0.1" value="1.0">
+        <span id="rollSpeedValue">1.0</span>
+        <br>
+        <label for="pixelStrength">Pixel Strength</label>
+        <input type="range" id="pixelStrength" class="slider" min="-4" max="0" step="0.1" value="-2.0">
+        <span id="pixelStrengthValue">-2.0</span>
+    </div>
+    <canvas id="glCanvas"></canvas>
+    <script id="vertexShader" type="x-shader/x-vertex">
+        attribute vec2 a_position;
+        attribute vec2 a_texCoord;
+        varying vec2 v_texCoord;
+
+        void main() {
+            gl_Position = vec4(a_position, 0.0, 1.0);
+            v_texCoord = a_texCoord;
+        }
+    </script>
+    <script id="fragmentShader" type="x-shader/x-fragment">
+        precision mediump float;
+        uniform float iTime;
+        uniform vec2 iResolution;
+        uniform sampler2D iChannel0;
+
+        uniform float scanLineAmount;
+        uniform float scanLineStrength;
+        uniform float noiseAmount;
+        uniform float interferenceAmount;
+        uniform float grilleAmount;
+        uniform float grilleSize;
+        uniform float vignetteAmount;
+        uniform float vignetteIntensity;
+        uniform float aberationAmount;
+        uniform float rollLineAmount;
+        uniform float rollSpeed;
+        uniform float pixelStrength;
+
+        varying vec2 v_texCoord;
+
+        float random(vec2 uv) {
+            return fract(cos(uv.x * 83.4827 + uv.y * 92.2842) * 43758.5453123);
+        }
+
+        vec3 fetch_pixel(vec2 uv, vec2 off, vec2 resolution, float noise_amount) {
+            vec2 pos = floor(uv * resolution + off) / resolution + vec2(0.5) / resolution;
+
+            float noise = 0.0;
+            if(noise_amount > 0.0) {
+                noise = random(pos + fract(iTime)) * noise_amount;
+            }
+
+            if(max(abs(pos.x - 0.5), abs(pos.y - 0.5)) > 0.5) {
+                return vec3(0.0, 0.0, 0.0);
+            }
+
+            vec3 clr = texture2D(iChannel0 , pos).rgb + noise;
+            return clr;
+        }
+
+        vec2 Dist(vec2 pos, vec2 resolution){ 
+            pos = pos * resolution;
+            return - ((pos - floor(pos)) - vec2(0.5));
+        }
+
+        float Gaus(float pos, float scale){ return exp2(scale * pos * pos); }
+
+        vec3 Horz3(vec2 pos, float off, vec2 resolution, float pixel_strength, float noise_amount) {
+            vec3 b = fetch_pixel(pos, vec2(-1.0, off), resolution, noise_amount);
+            vec3 c = fetch_pixel(pos, vec2( 0.0, off), resolution, noise_amount);
+            vec3 d = fetch_pixel(pos, vec2( 1.0, off), resolution, noise_amount);
+            float dst = Dist(pos, resolution).x;
+            
+            float scale = pixel_strength;
+            float wb = Gaus(dst - 1.0, scale);
+            float wc = Gaus(dst + 0.0, scale);
+            float wd = Gaus(dst + 1.0, scale);
+            
+            return (b * wb + c * wc + d * wd) / (wb + wc + wd);
+        }
+
+        float Scan(vec2 pos, float off, vec2 resolution, float scan_line_strength) {
+            float dst = Dist(pos, resolution).y;
+            return Gaus(dst + off, scan_line_strength);
+        }
+
+        vec3 Tri(vec2 pos, vec2 resolution, float scan_line_amount, float pixel_strength, float scan_line_strength, float noise_amount) {
+            vec3 clr = fetch_pixel(pos, vec2(0.0), resolution, noise_amount);
+            if(scan_line_amount > 0.0) {
+                vec3 a = Horz3(pos,-1.0, resolution, pixel_strength, noise_amount);
+                vec3 b = Horz3(pos, 0.0, resolution, pixel_strength, noise_amount);
+                vec3 c = Horz3(pos, 1.0, resolution, pixel_strength, noise_amount);
+
+                float wa = Scan(pos,-1.0, resolution, scan_line_strength);
+                float wb = Scan(pos, 0.0, resolution, scan_line_strength);
+                float wc = Scan(pos, 1.0, resolution, scan_line_strength);
+
+                vec3 scanlines = a * wa + b * wb + c * wc;
+                clr = mix(clr, scanlines, scan_line_amount);
+            }
+            return clr;
+        }
+
+        vec2 warp(vec2 uv, float warp_amount) {
+            vec2 delta = uv - 0.5;
+            float delta2 = dot(delta.xy, delta.xy);
+            float delta4 = delta2 * delta2;
+            float delta_offset = delta4 * warp_amount;
+            
+            vec2 warped = uv + delta * delta_offset;
+            return (warped - 0.5) / mix(1.0,1.2,warp_amount/5.0) + 0.5;
+        }
+
+        float vignette(vec2 uv, float vignette_amount, float vignette_intensity) {
+            uv *= 1.0 - uv.xy;
+            float vignette = uv.x * uv.y * 15.0;
+            return pow(vignette, vignette_intensity * vignette_amount);
+        }
+
+        float floating_mod(float a, float b) {
+            return a - b * floor(a/b);
+        }
+
+        vec3 grille(vec2 uv, float grille_size, float grille_amount) {
+            float unit = 3.141592 / 3.0;
+            float scale = 2.0 * unit / grille_size;
+            float r = smoothstep(0.5, 0.8, cos(uv.x * scale - unit));
+            float g = smoothstep(0.5, 0.8, cos(uv.x * scale + unit));
+            float b = smoothstep(0.5, 0.8, cos(uv.x * scale + 3.0 * unit));
+            return mix(vec3(1.0), vec3(r,g,b), grille_amount);
+        }
+
+        float roll_line(vec2 uv, float roll_speed, float roll_line_amount) {
+            float x = uv.y * 3.0 - iTime * roll_speed;
+            float f = cos(x) * cos(x * 2.35 + 1.1) * cos(x * 4.45 + 2.3);
+            float roll_line = smoothstep(0.5, 0.9, f);
+            return roll_line * roll_line_amount;
+        }
+
+        void main() {
+            vec2 resolution = vec2(320.0, 180.0);
+            vec2 uv = v_texCoord;
+            
+            float noise_amount = noiseAmount;
+            float interference_amount = interferenceAmount;
+            float grille_amount = grilleAmount;
+            float grille_size = grilleSize;
+            float vignette_amount = vignetteAmount;
+            float vignette_intensity = vignetteIntensity;
+            float aberation_amount = aberationAmount;
+            float roll_line_amount = rollLineAmount;
+            float roll_speed = rollSpeed;
+            float pixel_strength = pixelStrength;
+
+            vec2 pix = gl_FragCoord.xy;
+            vec2 pos = warp(uv, 0.1);
+            
+            float line = 0.0;
+            if(roll_line_amount > 0.0) {
+                line = roll_line(pos, roll_speed, roll_line_amount);
+            }
+
+            vec2 sq_pix = floor(pos * resolution) / resolution + vec2(0.5) / resolution;
+            if(interference_amount + roll_line_amount > 0.0) {
+                float interference = random(sq_pix.yy + fract(iTime));
+                pos.x += (interference * (interference_amount + line * 6.0)) / resolution.x;
+            }
+
+            vec3 clr = Tri(pos, resolution, scanLineAmount, pixel_strength, scanLineStrength, noise_amount);
+            if(aberation_amount > 0.0) {
+                float chromatic = aberation_amount + line * 2.0;
+                vec2 chromatic_x = vec2(chromatic, 0.0) / resolution.x;
+                vec2 chromatic_y = vec2(0.0, chromatic / 2.0) / resolution.y;
+                float r = Tri(pos - chromatic_x, resolution, scanLineAmount, pixel_strength, scanLineStrength, noise_amount).r;
+                float g = Tri(pos + chromatic_y, resolution, scanLineAmount, pixel_strength, scanLineStrength, noise_amount).g;
+                float b = Tri(pos + chromatic_x, resolution, scanLineAmount, pixel_strength, scanLineStrength, noise_amount).b;
+                clr = vec3(r, g, b);
+            }
+            
+            if(grille_amount > 0.0) clr *= grille(pix, grille_size, grille_amount);
+            clr *= 1.0 + scanLineAmount * 0.6 + line * 3.0 + grille_amount * 2.0;
+            if(vignette_amount > 0.0) clr *= vignette(pos, vignette_amount, vignette_intensity);
+            
+            gl_FragColor = vec4(clr, 1.0);
+        }
+    </script>
+    <script>
+        function createShader(gl, type, source) {
+            const shader = gl.createShader(type);
+            gl.shaderSource(shader, source);
+            gl.compileShader(shader);
+            const success = gl.getShaderParameter(shader, gl.COMPILE_STATUS);
+            if (success) {
+                return shader;
+            }
+            console.log(gl.getShaderInfoLog(shader));
+            gl.deleteShader(shader);
+        }
+
+        function createProgram(gl, vertexShader, fragmentShader) {
+            const program = gl.createProgram();
+            gl.attachShader(program, vertexShader);
+            gl.attachShader(program, fragmentShader);
+            gl.linkProgram(program);
+            const success = gl.getProgramParameter(program, gl.LINK_STATUS);
+            if (success) {
+                return program;
+            }
+            console.log(gl.getProgramInfoLog(program));
+            gl.deleteProgram(program);
+        }
+
+        function main() {
+            const canvas = document.getElementById("glCanvas");
+            const gl = canvas.getContext("webgl");
+            if (!gl) {
+                console.log("WebGL not supported, falling back on experimental-webgl");
+                gl = canvas.getContext("experimental-webgl");
+            }
+            if (!gl) {
+                alert("Your browser does not support WebGL");
+                return;
+            }
+
+            const vertexShaderSource = document.getElementById("vertexShader").text;
+            const fragmentShaderSource = document.getElementById("fragmentShader").text;
+
+            const vertexShader = createShader(gl, gl.VERTEX_SHADER, vertexShaderSource);
+            const fragmentShader = createShader(gl, gl.FRAGMENT_SHADER, fragmentShaderSource);
+
+            const program = createProgram(gl, vertexShader, fragmentShader);
+
+            const positionBuffer = gl.createBuffer();
+            gl.bindBuffer(gl.ARRAY_BUFFER, positionBuffer);
+
+            const positions = [
+                -1.0, -1.0,
+                 1.0, -1.0,
+                -1.0,  1.0,
+                -1.0,  1.0,
+                 1.0, -1.0,
+                 1.0,  1.0,
+            ];
+            gl.bufferData(gl.ARRAY_BUFFER, new Float32Array(positions), gl.STATIC_DRAW);
+
+            const texCoordBuffer = gl.createBuffer();
+            gl.bindBuffer(gl.ARRAY_BUFFER, texCoordBuffer);
+
+            const texCoords = [
+                0.0, 0.0,
+                1.0, 0.0,
+                0.0, 1.0,
+                0.0, 1.0,
+                1.0, 0.0,
+                1.0, 1.0,
+            ];
+            gl.bufferData(gl.ARRAY_BUFFER, new Float32Array(texCoords), gl.STATIC_DRAW);
+
+            const positionAttributeLocation = gl.getAttribLocation(program, "a_position");
+            const texCoordAttributeLocation = gl.getAttribLocation(program, "a_texCoord");
+
+            gl.enableVertexAttribArray(positionAttributeLocation);
+            gl.bindBuffer(gl.ARRAY_BUFFER, positionBuffer);
+            gl.vertexAttribPointer(positionAttributeLocation, 2, gl.FLOAT, false, 0, 0);
+
+            gl.enableVertexAttribArray(texCoordAttributeLocation);
+            gl.bindBuffer(gl.ARRAY_BUFFER, texCoordBuffer);
+            gl.vertexAttribPointer(texCoordAttributeLocation, 2, gl.FLOAT, false, 0, 0);
+
+            const image = new Image();
+            image.crossOrigin = "anonymous"; // Adicione esta linha
+            image.src = "https://i.ibb.co/ZLFNH3s/file-Gm0gd-QPpb-LZd8o98-Anjp-V5k-J.png";
+            image.onload = function() {
+                const texture = gl.createTexture();
+                gl.bindTexture(gl.TEXTURE_2D, texture);
+
+                gl.pixelStorei(gl.UNPACK_FLIP_Y_WEBGL, true); // Ativa o flipY
+
+                gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, gl.RGBA, gl.UNSIGNED_BYTE, image);
+
+                gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE);
+                gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE);
+                gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.LINEAR);
+                gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.LINEAR);
+
+                render();
+            };
+
+            const sliders = {
+                scanLineAmount: document.getElementById("scanLineAmount"),
+                scanLineStrength: document.getElementById("scanLineStrength"),
+                noiseAmount: document.getElementById("noiseAmount"),
+                interferenceAmount: document.getElementById("interferenceAmount"),
+                grilleAmount: document.getElementById("grilleAmount"),
+                grilleSize: document.getElementById("grilleSize"),
+                vignetteAmount: document.getElementById("vignetteAmount"),
+                vignetteIntensity: document.getElementById("vignetteIntensity"),
+                aberationAmount: document.getElementById("aberationAmount"),
+                rollLineAmount: document.getElementById("rollLineAmount"),
+                rollSpeed: document.getElementById("rollSpeed"),
+                pixelStrength: document.getElementById("pixelStrength")
+            };
+
+            const sliderValues = {
+                scanLineAmount: parseFloat(sliders.scanLineAmount.value),
+                scanLineStrength: parseFloat(sliders.scanLineStrength.value),
+                noiseAmount: parseFloat(sliders.noiseAmount.value),
+                interferenceAmount: parseFloat(sliders.interferenceAmount.value),
+                grilleAmount: parseFloat(sliders.grilleAmount.value),
+                grilleSize: parseFloat(sliders.grilleSize.value),
+                vignetteAmount: parseFloat(sliders.vignetteAmount.value),
+                vignetteIntensity: parseFloat(sliders.vignetteIntensity.value),
+                aberationAmount: parseFloat(sliders.aberationAmount.value),
+                rollLineAmount: parseFloat(sliders.rollLineAmount.value),
+                rollSpeed: parseFloat(sliders.rollSpeed.value),
+                pixelStrength: parseFloat(sliders.pixelStrength.value)
+            };
+
+            for (let key in sliders) {
+                sliders[key].addEventListener("input", function(event) {
+                    sliderValues[key] = parseFloat(event.target.value);
+                    document.getElementById(key + "Value").textContent = event.target.value;
+                });
+            }
+
+            function render() {
+                gl.viewport(0, 0, gl.canvas.width, gl.canvas.height);
+
+                gl.clearColor(0.0, 0.0, 0.0, 1.0);
+                gl.clear(gl.COLOR_BUFFER_BIT);
+
+                gl.useProgram(program);
+
+                gl.uniform1f(gl.getUniformLocation(program, "iTime"), performance.now() / 1000);
+                gl.uniform2f(gl.getUniformLocation(program, "iResolution"), gl.canvas.width, gl.canvas.height);
+                gl.uniform1i(gl.getUniformLocation(program, "iChannel0"), 0);
+
+                gl.uniform1f(gl.getUniformLocation(program, "scanLineAmount"), sliderValues.scanLineAmount);
+                gl.uniform1f(gl.getUniformLocation(program, "scanLineStrength"), sliderValues.scanLineStrength);
+                gl.uniform1f(gl.getUniformLocation(program, "noiseAmount"), sliderValues.noiseAmount);
+                gl.uniform1f(gl.getUniformLocation(program, "interferenceAmount"), sliderValues.interferenceAmount);
+                gl.uniform1f(gl.getUniformLocation(program, "grilleAmount"), sliderValues.grilleAmount);
+                gl.uniform1f(gl.getUniformLocation(program, "grilleSize"), sliderValues.grilleSize);
+                gl.uniform1f(gl.getUniformLocation(program, "vignetteAmount"), sliderValues.vignetteAmount);
+                gl.uniform1f(gl.getUniformLocation(program, "vignetteIntensity"), sliderValues.vignetteIntensity);
+                gl.uniform1f(gl.getUniformLocation(program, "aberationAmount"), sliderValues.aberationAmount);
+                gl.uniform1f(gl.getUniformLocation(program, "rollLineAmount"), sliderValues.rollLineAmount);
+                gl.uniform1f(gl.getUniformLocation(program, "rollSpeed"), sliderValues.rollSpeed);
+                gl.uniform1f(gl.getUniformLocation(program, "pixelStrength"), sliderValues.pixelStrength);
+
+                const primitiveType = gl.TRIANGLES;
+                const offset = 0;
+                const count = 6;
+                gl.drawArrays(primitiveType, offset, count);
+
+                requestAnimationFrame(render);
+            }
+        }
+
+        main();
+    </script>
+</body>
+</html>
